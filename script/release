@@ -1,0 +1,42 @@
+#!/bin/bash -e
+
+cd "$(dirname "$0")/.."
+
+VERSION="$(ruby -r./lib/foreman/version -e 'puts Foreman::VERSION')"
+SHA="$(git rev-parse HEAD)"
+
+git show --quiet "$SHA"
+
+echo
+read -p "Release as $VERSION? " -n 1
+echo
+
+if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+  exit 1
+fi
+
+echo
+
+TAG="v$VERSION"
+
+GH_API_TOKEN="$(security find-generic-password -s 'GitHub API Token' -w)"
+if [ -z "$GH_API_TOKEN" ]; then
+  echo "Could not extract GitHub API Token from keychain"
+  exit 1
+fi
+
+echo "Tagging $TAG"
+git tag -a "$TAG" -m "version $VERSION"
+
+echo "Pushing $TAG to GitHub"
+git push origin "$TAG"
+
+echo "Building pkg/foreman-$VERSION.tgz"
+bundle exec rake tgz:build
+
+echo "Creating release on GitHub"
+curl -X POST \
+  -H "Authorization: token $GH_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-ascii "{\"tag_name\":\"$TAG\",\"name\":\"version $VERSION\"}" \
+  https://api.github.com/repos/github/foreman/releases
